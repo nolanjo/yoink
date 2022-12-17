@@ -1,0 +1,46 @@
+name: Pull Request Actions
+
+on:
+    pull_request:
+        types: [opened, reopened, synchronize, labeled, unlabeled]
+concurrency:
+    group: ${{ github.head_ref || github.run_id }}
+    cancel-in-progress: true
+jobs:
+    Danger:
+        name: Danger JS
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v3
+            - name: Cache node modules
+              uses: actions/cache@v3
+              with:
+                  path: |
+                      node_modules
+                      **/node_modules
+                      **/**/node_modules
+                  key: ${{ runner.os }}-${{ hashFiles('**/yarn.lock') }}
+            - uses: actions/setup-node@v3
+              with:
+                  node-version: 14
+            - name: Installing dependencies
+              run: |
+                  yarn install
+            - name: Danger
+              run: yarn danger ci --dangerfile dangerfile.js
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    CheckJenkinsRun:
+        runs-on: ubuntu-latest
+        steps:
+            - name: PR Number
+              uses: actions/github-script@v6
+              with:
+                  github-token: ${{github.token}}
+                  script: |
+                      const prNumber = context.payload.number;
+                      core.exportVariable('PULL_NUMBER', prNumber);
+            - name: Run Jenkins
+              if: ${{ contains(fromJson('["Run Automation BE Critical Path", "Run Automation FE Critical Path", "Run Automation FE Deep Dive"]'), github.event.label.name) }}
+              run: curl -X POST -u "${{ secrets.JENKINS_USER }}:${{ secrets.JENKINS_TOKEN }}" "https://jenkins.workvivo.dev/job/Spark-PR-Testing/job/PR-{$PULL_NUMBER}/build?token=BUILD_TOKEN"
